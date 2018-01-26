@@ -17,6 +17,7 @@
 
 var basal = require('oref0/lib/profile/basal');
 var get_iob = require('oref0/lib/iob');
+var detect = require('oref0/lib/determine-basal/autosens');
 
 if (!module.parent) {
     var detectsensitivity = init();
@@ -26,9 +27,11 @@ if (!module.parent) {
     var isf_input = process.argv.slice(4, 5).pop()
     var basalprofile_input = process.argv.slice(5, 6).pop()
     var profile_input = process.argv.slice(6, 7).pop();
+    var carb_input = process.argv.slice(7, 8).pop()
+    var temptarget_input = process.argv.slice(8, 9).pop()
 
     if (!glucose_input || !pumphistory_input || !profile_input) {
-        console.error('usage: ', process.argv.slice(0, 2), '<glucose.json> <pumphistory.json> <insulin_sensitivities.json> <basal_profile.json> <profile.json>');
+        console.error('usage: ', process.argv.slice(0, 2), '<glucose.json> <pumphistory.json> <insulin_sensitivities.json> <basal_profile.json> <profile.json> [carbhistory.json] [temptargets.json]');
         process.exit(1);
     }
     
@@ -36,112 +39,87 @@ if (!module.parent) {
     try {
         var cwd = process.cwd();
         var glucose_data = require(cwd + '/' + glucose_input);
+        // require 6 hours of data to run autosens
         if (glucose_data.length < 72) {
-            console.log('Error: not enough glucose data to calculate autosens.');
-            process.exit(2);
+            console.error("Optional feature autosens disabled: not enough glucose data to calculate sensitivity");
+            return console.log('{ "ratio": 1, "reason": "not enough glucose data to calculate autosens" }');
+            //process.exit(2);
         }
 
         var pumphistory_data = require(cwd + '/' + pumphistory_input);
         var profile = require(cwd + '/' + profile_input);
-        //console.log(profile);
-        var glucose_status = detectsensitivity.getLastGlucose(glucose_data);
+
         var isf_data = require(cwd + '/' + isf_input);
         if (isf_data.units !== 'mg/dL') {
-            console.log('ISF is expected to be expressed in mg/dL.'
-                    , 'Found', isf_data.units, 'in', isf_input, '.');
-            process.exit(2);
+            if (isf_data.units == 'mmol/L') {
+                for (var i = 0, len = isf_data.sensitivities.length; i < len; i++) {
+                    isf_data.sensitivities[i].sensitivity = isf_data.sensitivities[i].sensitivity * 18;
+                }
+               isf_data.units = 'mg/dL';
+            } else {
+                console.log('ISF is expected to be expressed in mg/dL or mmol/L.'
+                        , 'Found', isf_data.units, 'in', isf_input, '.');
+                process.exit(2);
+            }
         }
         var basalprofile = require(cwd + '/' + basalprofile_input);
 
+        var carb_data = { };
+        if (typeof carb_input != 'undefined') {
+            try {
+                carb_data = JSON.parse(fs.readFileSync(carb_input, 'utf8'));
+            } catch (e) {
+                console.error("Warning: could not parse "+carb_input);
+            }
+        }
+
+        var temptarget_data = { };
+        if (typeof temptarget_input != 'undefined') {
+            try {
+                temptarget_data = JSON.parse(fs.readFileSync(temptarget_input, 'utf8'));
+            } catch (e) {
+                console.error("Warning: could not parse "+temptarget_input);
+            }
+        }
+
         var iob_inputs = {
             history: pumphistory_data
-        , profile: profile
+            , profile: profile
         //, clock: clock_data
         };
     } catch (e) {
         return console.error("Could not parse input data: ", e);
     }
-    var avgDeltas = [];
-    var bgis = [];
-    var deviations = [];
-    var deviationSum = 0;
-    for (var i=0; i < glucose_data.length-3; ++i) {
-        //console.log(glucose_data[i]);
-        var bgTime;
-        if (glucose_data[i].display_time) {
-            bgTime = new Date(glucose_data[i].display_time.replace('T', ' '));
-        } else if (glucose_data[i].dateString) {
-            bgTime = new Date(glucose_data[i].dateString);
-        } else { console.error("Could not determine last BG time"); }
-        //console.log(bgTime);
-        var bg = glucose_data[i].glucose;
-        if ( bg < 40 || glucose_data[i+3].glucose < 40) {
-            process.stderr.write("!");
-            continue;
-        }
-        var avgDelta = (bg - glucose_data[i+3].glucose)/3;
-        avgDelta = avgDelta.toFixed(2);
-        iob_inputs.clock=bgTime;
-        iob_inputs.profile.current_basal = basal.basalLookup(basalprofile, bgTime);
-        //console.log(JSON.stringify(iob_inputs.profile));
-        var iob = get_iob(iob_inputs);
-        //console.log(JSON.stringify(iob));
 
-        //var bgi = -iob.activity*profile.sens;
-        var bgi = Math.round(( -iob.activity * profile.sens * 5 )*100)/100;
-        bgi = bgi.toFixed(2);
-        deviation = avgDelta-bgi;
-        deviation = deviation.toFixed(2);
-        //if (deviation < 0 && deviation > -2) {
-            //console.log("BG: "+bg+", avgDelta: "+avgDelta+", BGI: "+bgi+", deviation: "+deviation);
-        //}
-        process.stderr.write(".");
-
-        avgDeltas.push(avgDelta);
-        bgis.push(bgi);
-        deviations.push(deviation);
-        deviationSum += parseFloat(deviation);
-
-    }
-    console.error("");
-    //console.log(JSON.stringify(avgDeltas));
-    //console.log(JSON.stringify(bgis));
-    avgDeltas.sort(function(a, b){return a-b});
-    bgis.sort(function(a, b){return a-b});
-    deviations.sort(function(a, b){return a-b});
-    for (var i=0.60; i > 0.25; i = i - 0.02) {
-        console.error("p="+i.toFixed(2)+": "+percentile(avgDeltas, i).toFixed(2)+", "+percentile(bgis, i).toFixed(2)+", "+percentile(deviations, i).toFixed(2));
-    }
-    pSensitive = percentile(deviations, 0.50);
-    pResistant = percentile(deviations, 0.30);
-    //p30 = percentile(deviations, 0.3);
-
-    average = deviationSum / deviations.length;
-
-    console.error("Mean deviation: "+average.toFixed(2));
-    var basalOff = 0;
-
-    if(pSensitive < 0) { // sensitive
-        basalOff = pSensitive * (60/5) / profile.sens;
-        console.error("Excess insulin sensitivity detected");
-    } else if (pResistant > 0) { // resistant
-        basalOff = pResistant * (60/5) / profile.sens;
-        console.error("Excess insulin resistance detected");
+    var detection_inputs = {
+        iob_inputs: iob_inputs
+        , carbs: carb_data
+        , glucose_data: glucose_data
+        , basalprofile: basalprofile
+        , temptargets: temptarget_data
+        //, clock: clock_data
+    };
+    console.error("Calculating sensitivity using 8h of non-exluded data");
+    detection_inputs.deviations = 96;
+    detect(detection_inputs);
+    ratio8h = ratio;
+    newisf8h = newisf;
+    console.error("Calculating sensitivity using all non-exluded data (up to 24h)");
+    detection_inputs.deviations = 288;
+    detect(detection_inputs);
+    ratio24h = ratio;
+    newisf24h = newisf;
+    if ( ratio8h < ratio24h ) {
+        console.error("Using 8h autosens ratio of",ratio8h,"(ISF",newisf8h+")");
     } else {
-        console.error("Sensitivity within normal ranges");
+        console.error("Using 24h autosens ratio of",ratio24h,"(ISF",newisf24h+")");
     }
-    ratio = 1 + (basalOff / profile.max_daily_basal);
-    // don't adjust more than 2x
-    ratio = Math.max(ratio, 0.5);
-    ratio = Math.min(ratio, 2);
-    ratio = Math.round(ratio*100)/100;
-    newisf = profile.sens / ratio;
-    console.error("Basal adjustment "+basalOff.toFixed(2)+"U/hr");
-    console.error("Ratio: "+ratio*100+"%: new ISF: "+newisf.toFixed(1)+"mg/dL/U");
+    var lowestRatio = Math.min(ratio8h, ratio24h);
     var sensAdj = {
-        "ratio": ratio
+        "ratio": lowestRatio
     }
     return console.log(JSON.stringify(sensAdj));
+
 }
 
 function init() {
@@ -151,7 +129,7 @@ function init() {
         , label: "OpenAPS Detect Sensitivity"
     };
 
-    detectsensitivity.getLastGlucose = require('../lib/glucose-get-last');
+    //detectsensitivity.getLastGlucose = require('../lib/glucose-get-last');
     //detectsensitivity.detect_sensitivity = require('../lib/determine-basal/determine-basal');
     return detectsensitivity;
 

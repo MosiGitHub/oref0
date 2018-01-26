@@ -82,7 +82,7 @@ if (!module.parent) {
     var tick = delta;
     if (delta >= 0) { tick = "+" + delta; } 
     var iob_data = require(cwd + '/' + iob_input);
-    iob = iob_data.iob.toFixed(1);
+    iob = iob_data[0].iob.toFixed(1);
     var basalprofile_data = require(cwd + '/' + basalprofile_input);
     var basalRate;
     basalLookup();
@@ -135,7 +135,7 @@ if (!module.parent) {
 
 //console.log("<!-- ");
 console.log( bgnow + requestedtemp.tick + " " + bgTime + ", "
-    + iob + "U -> " + requestedtemp.eventualBG + "-" + requestedtemp.snoozeBG + ", "
+    + iob + "U -> " + requestedtemp.eventualBG + ", "
     + tempstring + "U/hr @ " + temp_time
     + " " + reqtempstring
     + ", " + requestedtemp.reason + ", "
@@ -157,7 +157,7 @@ console.log("<body>");
         console.log("<h1>");
         console.log( bgnow + " " + tick + " at " + bgTime );
         console.log("<br>");
-        console.log( "IOB: " + iob + "U, eventually " + requestedtemp.eventualBG + "-" + requestedtemp.snoozeBG + " mg/dL" );
+        console.log( "IOB: " + iob + "U, eventually " + requestedtemp.eventualBG + " mg/dL" );
         console.log("<br>");
         //+ "Act: " + enactedstring
         //+ " at " + enactedat + "\n"

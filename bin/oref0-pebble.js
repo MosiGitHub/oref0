@@ -87,7 +87,7 @@ if (!module.parent) {
 
     var bgnow = glucose_data[0].glucose;
     var iob_data = require(cwd + '/' + iob_input);
-    iob = iob_data.iob.toFixed(1);
+    iob = iob_data[0].iob.toFixed(1);
     var basalprofile_data = require(cwd + '/' + basalprofile_input);
     var basalRate;
     basalLookup();
@@ -112,7 +112,7 @@ if (!module.parent) {
     else if (requestedtemp.duration < 1) {
         reqtempstring = "Cancel";
     } else { 
-        reqtempstring = requestedtemp.duration + "m@" + requestedtemp.rate.toFixed(1) + "U";
+        reqtempstring = requestedtemp.duration + "m@" + requestedtemp.rate.toFixed(1);
     }
     var enactedtemp = require(cwd + '/' + enactedtemp_input);
     if (enactedtemp.duration < 1) {
@@ -143,7 +143,8 @@ if (!module.parent) {
 
     var pebble = {        
         "content" : "" + bgnow + requestedtemp.tick + " " + bgTime + "\n"
-        + iob + "U->" + requestedtemp.eventualBG + "-" + requestedtemp.snoozeBG + "\n"
+        //+ iob + "U->" + requestedtemp.eventualBG + "-" + requestedtemp.snoozeBG + "\n"
+        + iob + "U->" + requestedtemp.eventualBG + "\n"
         //+ "Act: " + enactedstring
         //+ " at " + enactedat + "\n"
         + tempstring
